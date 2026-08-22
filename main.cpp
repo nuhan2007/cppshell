@@ -3,6 +3,9 @@
 #include <string>
 #include <vector>
 #include <unistd.h>
+#include <optional>
+#include <sys/wait.h>
+#include <cstdlib>
 
 
 #ifdef _WIN32
@@ -45,6 +48,47 @@ bool isExecutable(const std::string& path) {
     return access(path.c_str(), X_OK) == 0;
 }
 
+std::optional<std::string> getExecutablePath(std::string arg) {
+    const char* env_path = std::getenv("PATH");
+    if(!env_path) {
+        std::cout << "PATH not found" << "\n";
+        return std::nullopt;
+    }
+
+    std::vector<std::string> allDirectories = splitPathList(env_path, PATH_LIST_SEPARATOR);
+    for(std::string directory : allDirectories) {
+        std::string fullPath = directory + "/" + arg;
+        if(isExecutable(fullPath)) {
+            return fullPath;
+        }
+    }
+    return std::nullopt;
+}
+
+std::vector<char*> buildArgv(const std::vector<std::string>& args) {
+    std::vector<char*> argv;
+    for (const auto& arg : args) {
+        argv.push_back(const_cast<char*>(arg.c_str()));
+    }
+    argv.push_back(nullptr);
+    return argv;
+}
+
+void executeExternalCommand(const std::string& fullPath, std::vector<char*> argv) {
+    pid_t pid = fork();
+
+    if (pid == 0) {
+        execv(fullPath.c_str(), argv.data());
+        perror("execv");
+        std::exit(1);
+    } else if (pid > 0) {
+        int status;
+        waitpid(pid, &status, 0);
+    } else {
+        perror("fork");
+    }
+}
+
 int main() {
     std::cout << std::unitbuf;
     std::cerr << std::unitbuf;
@@ -57,6 +101,8 @@ int main() {
 
         std::vector<std::string> args = tokenize(input);
         if (args.empty()) continue;
+
+        std::vector<char*> argv = buildArgv(args);
 
         const std::string& cmd = args[0];
 
@@ -73,34 +119,28 @@ int main() {
         if (cmd == "type") {
             if (args.size() < 2) continue;
             
-            const char* env_path = std::getenv("PATH");
-            if(!env_path) {
-                std::cout << "PATH not found" << "\n";
-                continue;
-            }
-            
             for(size_t i=1; i<args.size(); i++) {
                 if (isBuiltin(args[i])) {
                     std::cout << args[i] << " is a shell builtin\n";
                     continue;
                 }
-                
-                bool foundPATHCmd = false;
-                std::vector<std::string> allDirectories = splitPathList(env_path, PATH_LIST_SEPARATOR);
-                for(std::string directory : allDirectories) {
-                    std::string fullPath = directory + "/" + args[i];
-                    if(isExecutable(fullPath)) {
-                        std::cout << args[i] << " is " << fullPath << "\n";
-                        foundPATHCmd = true;
-                        break;
-                    }
+            
+                auto fullPath = getExecutablePath(args[i]);
+                if(fullPath) {
+                    std::cout << args[i] << " is " << *fullPath << "\n";
                 }
-                if(!foundPATHCmd) std::cout << args[i] << ": not found\n";
-        
+                else {
+                    std::cout << args[i] << ": not found\n";
+                }
             }
             continue;
         }
 
-        std::cout << cmd << ": command not found\n";
+        auto fullPath = getExecutablePath(cmd);
+        if (fullPath) {
+            executeExternalCommand(*fullPath, argv);
+        } else {
+            std::cout << cmd << ": command not found\n";
+        }
     }
 }

@@ -6,6 +6,7 @@
 #include <optional>
 #include <sys/wait.h>
 #include <cstdlib>
+#include <filesystem>
 
 
 #ifdef _WIN32
@@ -14,7 +15,7 @@ constexpr char PATH_LIST_SEPARATOR = ';';
 constexpr char PATH_LIST_SEPARATOR = ':';
 #endif
 
-std::vector<std::string> builtins = {"exit", "type", "echo"};
+std::vector<std::string> builtins = {"exit", "type", "echo", "pwd", "cd"};
 
 std::vector<std::string> tokenize(const std::string& input) {
     std::istringstream iss(input);
@@ -104,6 +105,8 @@ int main() {
 
         std::vector<char*> argv = buildArgv(args);
 
+        std::filesystem::path currentWorkingDirectory = std::filesystem::current_path();
+
         const std::string& cmd = args[0];
 
         if (cmd == "exit") break;
@@ -113,6 +116,33 @@ int main() {
                 std::cout << args[i] << (i + 1 < args.size() ? " " : "");
             }
             std::cout << "\n";
+            continue;
+        }
+
+        if(cmd == "pwd") {
+            std::cout << currentWorkingDirectory.string() << "\n";
+            continue;
+        }
+
+        if(cmd == "cd") {
+            if(args.size() < 2) {
+                const char* home = std::getenv("HOME");
+                if(home) std::filesystem::current_path(home);
+                continue;
+            }
+
+            std::string newPath = args[1];
+            if(!newPath.empty() && newPath[0] == '~') {
+                const char* home = std::getenv("HOME");
+                if(home) newPath = std::string(home) + newPath.substr(1);
+            }
+
+            try {
+                std::filesystem::current_path(newPath);
+            }
+            catch(const std::filesystem::filesystem_error& err) {
+                std::cout << "cd: " << newPath << ": No such file or directory\n";
+            }
             continue;
         }
 

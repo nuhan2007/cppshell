@@ -18,10 +18,74 @@ constexpr char PATH_LIST_SEPARATOR = ':';
 std::vector<std::string> builtins = {"exit", "type", "echo", "pwd", "cd"};
 
 std::vector<std::string> tokenize(const std::string& input) {
-    std::istringstream iss(input);
     std::vector<std::string> tokens;
-    std::string tok;
-    while (iss >> tok) tokens.push_back(tok);
+    std::string current;
+    bool inToken = false;
+    bool inSingleQuotes = false;
+    bool inDoubleQuotes = false;
+
+    for (size_t i = 0; i < input.size(); ++i) {
+        char c = input[i];
+
+        if (inSingleQuotes) {
+            if (c == '\'') {
+                inSingleQuotes = false;
+            } else {
+                current += c;
+            }
+            continue;
+        }
+
+        if (inDoubleQuotes) {
+            if (c == '"') {
+                inDoubleQuotes = false;
+            } else if (c == '\\' && i + 1 < input.size() &&
+                       (input[i + 1] == '"' || input[i + 1] == '\\' ||
+                        input[i + 1] == '$' || input[i + 1] == '`')) {
+                current += input[i + 1];
+                ++i;
+            } else {
+                current += c;
+            }
+            continue;
+        }
+
+        if (c == '\'') {
+            inSingleQuotes = true;
+            inToken = true;
+            continue;
+        }
+
+        if (c == '"') {
+            inDoubleQuotes = true;
+            inToken = true;
+            continue;
+        }
+
+        if (c == '\\' && i + 1 < input.size()) {
+            current += input[i + 1];
+            inToken = true;
+            ++i;
+            continue;
+        }
+
+        if (std::isspace(static_cast<unsigned char>(c))) {
+            if (inToken) {
+                tokens.push_back(current);
+                current.clear();
+                inToken = false;
+            }
+            continue;
+        }
+
+        current += c;
+        inToken = true;
+    }
+
+    if (inToken) {
+        tokens.push_back(current);
+    }
+
     return tokens;
 }
 
@@ -68,6 +132,7 @@ std::optional<std::string> getExecutablePath(std::string arg) {
 
 std::vector<char*> buildArgv(const std::vector<std::string>& args) {
     std::vector<char*> argv;
+    argv.reserve(args.size() + 1);
     for (const auto& arg : args) {
         argv.push_back(const_cast<char*>(arg.c_str()));
     }
